@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[project]
+name = "custom-auth-service"
+version = "0.1.2"
+description = "Собственная система аутентификации и авторизации (RBAC)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.138.0",
+    "uvicorn[standard]>=0.49",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "pydantic-settings>=2.6",
+    "bcrypt>=4.1",
+    "email-validator>=2.2",
+    "rich>=15.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "httpx2>=2.5.0",
+    "ruff>=0.15.20",
+]

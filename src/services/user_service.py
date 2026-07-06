@@ -11,7 +11,7 @@ class UserService:
         self._user_repo = user_repo
         self._session_repo = session_repo
 
-    def update_profile(
+    async def update_profile(
         self,
         user: User,
         last_name: str | None,
@@ -25,10 +25,10 @@ class UserService:
             user.first_name = first_name
         if middle_name is not None:
             user.middle_name = middle_name
-        return self._user_repo.update(user)
+        return await self._user_repo.update(user)
 
-    def delete_account(self, user: User) -> None:
+    async def delete_account(self, user: User) -> None:
         """Выполняем мягкое удаление учетной записи пользователя."""
         user.is_active = False
-        self._user_repo.update(user)
-        self._session_repo.revoke_all_for_user(user.id)
+        await self._user_repo.update(user)
+        await self._session_repo.revoke_all_for_user(user.id)

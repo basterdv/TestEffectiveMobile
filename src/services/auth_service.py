@@ -42,7 +42,7 @@ class AuthService:
         self._session_repo = session_repo
         self._session_ttl_seconds = session_ttl_seconds
 
-    def register(
+    async def register(
         self,
         last_name: str,
         first_name: str,
@@ -51,7 +51,7 @@ class AuthService:
         raw_password: str,
     ) -> User:
         """Регистрирует нового пользователя в системе."""
-        if self._user_repo.get_by_email(email) is not None:
+        if await self._user_repo.get_by_email(email) is not None:
             raise EmailAlreadyTakenError(f"Email {email} уже зарегистрирован")
 
         user = User(
@@ -62,11 +62,11 @@ class AuthService:
             hashed_password=hash_password(raw_password),
             is_active=True,
         )
-        return self._user_repo.create(user)
+        return await self._user_repo.create(user)
 
-    def login(self, email: str, raw_password: str) -> tuple[User, str]:
+    async def login(self, email: str, raw_password: str) -> tuple[User, str]:
         """Аутентифицирует пользователя и создаем новую сессию."""
-        user = self._user_repo.get_by_email(email)
+        user = await self._user_repo.get_by_email(email)
         if (
             user is None
             or not user.is_active
@@ -82,21 +82,21 @@ class AuthService:
             created_at=now,
             expires_at=now + timedelta(seconds=self._session_ttl_seconds),
         )
-        self._session_repo.create(session)
+        await self._session_repo.create(session)
         return user, raw_token
 
-    def logout(self, raw_token: str) -> None:
+    async def logout(self, raw_token: str) -> None:
         """Завершаем сессию пользователя (выход из системы)."""
-        session = self._session_repo.get_by_token_hash(hash_token(raw_token))
+        session = await self._session_repo.get_by_token_hash(hash_token(raw_token))
         if session is not None and session.is_valid:
-            self._session_repo.revoke(session)
+            await self._session_repo.revoke(session)
 
-    def get_user_by_token(self, raw_token: str) -> User | None:
+    async def get_user_by_token(self, raw_token: str) -> User | None:
         """Идентифицируем и возвращаем пользователя по его сырому токену сессии."""
-        session = self._session_repo.get_by_token_hash(hash_token(raw_token))
+        session = await self._session_repo.get_by_token_hash(hash_token(raw_token))
         if session is None or not session.is_valid:
             return None
-        user = self._user_repo.get_by_id(session.user_id)
+        user = await self._user_repo.get_by_id(session.user_id)
         if user is None or not user.is_active:
             return None
         return user

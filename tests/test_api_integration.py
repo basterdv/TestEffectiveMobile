@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from src.api import deps
 from src.database.models import Permission
@@ -19,13 +19,13 @@ class FakeRbacRepoForApi:
         """Напрямую выдаем пользователю право на действие с ресурсом."""
         self.granted.add((user_id, resource_code, action_code))
 
-    def has_permission(
+    async def has_permission(
         self, user_id: uuid.UUID, resource_code: str, action_code: str
     ) -> bool:
         """Проверяем, было ли выдано конкретное право пользователю."""
         return (user_id, resource_code, action_code) in self.granted
 
-    def get_user_permissions(self, user_id: uuid.UUID) -> list[Permission]:
+    async def get_user_permissions(self, user_id: uuid.UUID) -> list[Permission]:
         """Заглушка для получения списка объектов Permission."""
         return []
 
@@ -61,15 +61,19 @@ def client(fake_state):
     app.dependency_overrides[deps.get_user_service] = _override_user_service
     app.dependency_overrides[deps.get_rbac_repository] = _override_rbac_repo
 
-    client_instance = TestClient(app)
+    client_instance = AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    )
     yield client_instance
 
     app.dependency_overrides.clear()
 
 
-def _register_and_login(client: TestClient, email: str = "ivan@example.ru") -> str:
+async def _register_and_login(
+    client: AsyncClient, email: str = "ivan@example.ru"
+) -> str:
     """Вспомогательный метод для быстрой регистрации и авторизации пользователя в тестах."""
-    client.post(
+    await client.post(
         "/api/v1/auth/register",
         json={
             "last_name": "Ivanov",
@@ -79,42 +83,50 @@ def _register_and_login(client: TestClient, email: str = "ivan@example.ru") -> s
             "password_confirm": "password123",
         },
     )
-    resp = client.post(
+    resp = await client.post(
         "/api/v1/auth/login", json={"email": email, "password": "password123"}
     )
     return resp.json()["access_token"]
 
 
-def test_register_and_get_me(client: TestClient) -> None:
+async def test_register_and_get_me(client: AsyncClient) -> None:
     """Проверяем, что после регистрации и входа можно успешно получить профиль пользователя."""
-    token = _register_and_login(client)
+    token = await _register_and_login(client)
 
-    resp = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    resp = await client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
 
     assert resp.status_code == 200
     assert resp.json()["email"] == "ivan@example.ru"
 
 
-def test_protected_endpoint_without_token_returns_401(client: TestClient) -> None:
+async def test_protected_endpoint_without_token_returns_401(
+    client: AsyncClient,
+) -> None:
     """Проверяем, что запрос к защищенному эндпоинту без токена возвращает 401 Unauthorized."""
-    resp = client.get("/api/v1/business/campaigns")
+    resp = await client.get("/api/v1/business/campaigns")
     assert resp.status_code == 401
 
 
-def test_protected_endpoint_with_invalid_token_returns_401(client: TestClient) -> None:
+async def test_protected_endpoint_with_invalid_token_returns_401(
+    client: AsyncClient,
+) -> None:
     """Проверяем, что запрос с некорректным токеном возвращает 401 Unauthorized."""
-    resp = client.get(
+    resp = await client.get(
         "/api/v1/business/campaigns",
         headers={"Authorization": "Bearer not-a-real-token"},
     )
     assert resp.status_code == 401
 
 
-def test_authenticated_without_permission_returns_403(client: TestClient) -> None:
+async def test_authenticated_without_permission_returns_403(
+    client: AsyncClient,
+) -> None:
     """Проверяем, что аутентифицированный пользователь без нужных прав получает 403 Forbidden."""
-    token = _register_and_login(client)
+    token = await _register_and_login(client)
 
-    resp = client.get(
+    resp = await client.get(
         "/api/v1/business/campaigns",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -122,20 +134,20 @@ def test_authenticated_without_permission_returns_403(client: TestClient) -> Non
     assert resp.status_code == 403
 
 
-def test_authenticated_with_permission_returns_200(
-    client: TestClient, fake_state
+async def test_authenticated_with_permission_returns_200(
+    client: AsyncClient, fake_state
 ) -> None:
     """Проверяем, что при наличии выданного права эндпоинт успешно возвращает данные (200)."""
     user_repo, _, rbac_repo = fake_state
-    token = _register_and_login(client)
+    token = await _register_and_login(client)
 
-    me_resp = client.get(
+    me_resp = await client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
     )
     user_id = uuid.UUID(me_resp.json()["id"])
     rbac_repo.grant(user_id, "campaigns", "read")
 
-    resp = client.get(
+    resp = await client.get(
         "/api/v1/business/campaigns", headers={"Authorization": f"Bearer {token}"}
     )
 
@@ -144,41 +156,41 @@ def test_authenticated_with_permission_returns_200(
     assert len(resp.json()) > 0
 
 
-def test_logout_revokes_token(client: TestClient) -> None:
+async def test_logout_revokes_token(client: AsyncClient) -> None:
     """Проверяем, что после логаута токен становится невалидным (401)."""
-    token = _register_and_login(client)
+    token = await _register_and_login(client)
 
-    logout_resp = client.post(
+    logout_resp = await client.post(
         "/api/v1/auth/logout", headers={"Authorization": f"Bearer {token}"}
     )
     assert logout_resp.status_code == 204
 
-    me_resp = client.get(
+    me_resp = await client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
     )
     assert me_resp.status_code == 401
 
 
-def test_soft_delete_blocks_further_access(client: TestClient) -> None:
+async def test_soft_delete_blocks_further_access(client: AsyncClient) -> None:
     """Проверяем, что мягкое удаление аккаунта блокирует последующий доступ к системе."""
-    token = _register_and_login(client)
+    token = await _register_and_login(client)
 
-    delete_resp = client.delete(
+    delete_resp = await client.delete(
         "/api/v1/users/me", headers={"Authorization": f"Bearer {token}"}
     )
     assert delete_resp.status_code == 204
 
-    me_resp = client.get(
+    me_resp = await client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
     )
     assert me_resp.status_code == 401
 
 
-def test_register_duplicate_email_returns_409(client: TestClient) -> None:
+async def test_register_duplicate_email_returns_409(client: AsyncClient) -> None:
     """Проверяем, что попытка регистрации на уже существующий email возвращает 409 Conflict."""
-    _register_and_login(client, email="dup@example.ru")
+    await _register_and_login(client, email="dup@example.ru")
 
-    resp = client.post(
+    resp = await client.post(
         "/api/v1/auth/register",
         json={
             "last_name": "Petrov",
@@ -192,11 +204,11 @@ def test_register_duplicate_email_returns_409(client: TestClient) -> None:
     assert resp.status_code == 409
 
 
-def test_login_wrong_password_returns_401(client: TestClient) -> None:
+async def test_login_wrong_password_returns_401(client: AsyncClient) -> None:
     """Проверяем, что ввод неверного пароля при авторизации возвращает 401 Unauthorized."""
-    _register_and_login(client, email="wrongpass@example.ru")
+    await _register_and_login(client, email="wrongpass@example.ru")
 
-    resp = client.post(
+    resp = await client.post(
         "/api/v1/auth/login",
         json={"email": "wrongpass@example.ru", "password": "incorrect"},
     )

@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.orm import Session as DbSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.database.db import get_db
@@ -17,7 +17,7 @@ from src.services.user_service import UserService
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_auth_service(db: Annotated[DbSession, Depends(get_db)]) -> AuthService:
+async def get_auth_service(db: Annotated[AsyncSession, Depends(get_db)]) -> AuthService:
     """Создаем и возвращаем экземпляр сервиса аутентификации."""
     return AuthService(
         user_repo=SqlAlchemyUserRepository(db),
@@ -26,7 +26,7 @@ def get_auth_service(db: Annotated[DbSession, Depends(get_db)]) -> AuthService:
     )
 
 
-def get_user_service(db: Annotated[DbSession, Depends(get_db)]) -> UserService:
+async def get_user_service(db: Annotated[AsyncSession, Depends(get_db)]) -> UserService:
     """Создаем и возвращаем экземпляр сервиса управления пользователями."""
     return UserService(
         user_repo=SqlAlchemyUserRepository(db),
@@ -34,21 +34,21 @@ def get_user_service(db: Annotated[DbSession, Depends(get_db)]) -> UserService:
     )
 
 
-def get_rbac_repository(
-    db: Annotated[DbSession, Depends(get_db)],
+async def get_rbac_repository(
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SqlAlchemyRbacRepository:
     """Создаем и возвращаем экземпляр репозитория ролевой модели доступа."""
     return SqlAlchemyRbacRepository(db)
 
 
-def get_rbac_service(
+async def get_rbac_service(
     rbac_repo: Annotated[SqlAlchemyRbacRepository, Depends(get_rbac_repository)],
 ) -> RbacService:
     """Создаем и возвращаем экземпляр сервиса управления доступом."""
     return RbacService(rbac_repo)
 
 
-def get_current_user(
+async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> User:
@@ -58,7 +58,8 @@ def get_current_user(
             status.HTTP_401_UNAUTHORIZED, detail="Не предоставлен токен"
         )
 
-    user = auth_service.get_user_by_token(credentials.credentials)
+    user = await auth_service.get_user_by_token(credentials.credentials)
+
     if user is None:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="Невалидная или истёкшая сессия"
@@ -76,11 +77,11 @@ def require_permission(resource_code: str, action_code: str):
     здесь возможна только 403.
     """
 
-    def _checker(
+    async def _checker(
         user: CurrentUser,
         rbac_repo: Annotated[SqlAlchemyRbacRepository, Depends(get_rbac_repository)],
     ) -> User:
-        if not rbac_repo.has_permission(user.id, resource_code, action_code):
+        if not await rbac_repo.has_permission(user.id, resource_code, action_code):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 detail=f"Недостаточно прав: требуется ({resource_code}, {action_code})",

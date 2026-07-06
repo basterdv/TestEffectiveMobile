@@ -47,3 +47,7 @@ class UserResponse(BaseModel):
     is_active: bool
 
     model_config = {"from_attributes": True}
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(examples=["Описание ошибки"])

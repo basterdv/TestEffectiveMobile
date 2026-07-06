@@ -27,54 +27,54 @@ class FakeRbacRepository:
 
     # --- Роли ---
 
-    def list_roles(self) -> list[Role]:
+    async def list_roles(self) -> list[Role]:
         """Возвращаем список всех существующих ролей."""
         return list(self.roles.values())
 
-    def get_role(self, role_id: uuid.UUID) -> Role | None:
+    async def get_role(self, role_id: uuid.UUID) -> Role | None:
         """Находим роль по её идентификатору."""
         return self.roles.get(role_id)
 
-    def create_role(self, name: str, description: str | None) -> Role:
+    async def create_role(self, name: str, description: str | None) -> Role:
         """Создаем новую роль и инициализируем её список прав."""
         role = Role(id=uuid.uuid4(), name=name, description=description)
         role.permissions = []
         self.roles[role.id] = role
         return role
 
-    def delete_role(self, role: Role) -> None:
+    async def delete_role(self, role: Role) -> None:
         """Удаляем роль из репозитория."""
         self.roles.pop(role.id, None)
 
     # --- Ресурсы / Операции ---
 
-    def list_resources(self) -> list[Resource]:
+    async def list_resources(self) -> list[Resource]:
         """Возвращаем список всех созданных ресурсов."""
         return list(self.resources.values())
 
-    def get_resource_by_code(self, code: str) -> Resource | None:
+    async def get_resource_by_code(self, code: str) -> Resource | None:
         """Находим ресурс по его текстовому коду."""
         return self.resources.get(code)
 
-    def list_actions(self) -> list[Action]:
+    async def list_actions(self) -> list[Action]:
         """Возвращаем список всех созданных действий."""
         return list(self.actions.values())
 
-    def get_action_by_code(self, code: str) -> Action | None:
+    async def get_action_by_code(self, code: str) -> Action | None:
         """Находим действие по его текстовому коду."""
         return self.actions.get(code)
 
     # --- Права доступа ---
 
-    def list_permissions(self) -> list[Permission]:
+    async def list_permissions(self) -> list[Permission]:
         """Возвращаем список всех существующих разрешений."""
         return list(self.permissions.values())
 
-    def get_permission(self, permission_id: uuid.UUID) -> Permission | None:
+    async def get_permission(self, permission_id: uuid.UUID) -> Permission | None:
         """Находим разрешение по его идентификатору."""
         return self.permissions.get(permission_id)
 
-    def create_permission(
+    async def create_permission(
         self, resource_id: uuid.UUID, action_id: uuid.UUID
     ) -> Permission:
         """Создаем новое разрешение, связывающее ресурс и действие."""
@@ -84,27 +84,31 @@ class FakeRbacRepository:
         self.permissions[permission.id] = permission
         return permission
 
-    def delete_permission(self, permission: Permission) -> None:
+    async def delete_permission(self, permission: Permission) -> None:
         """Удаляем разрешение из репозитория."""
         self.permissions.pop(permission.id, None)
 
-    def assign_permission_to_role(self, role: Role, permission: Permission) -> None:
+    async def assign_permission_to_role(
+        self, role: Role, permission: Permission
+    ) -> None:
         """Назначаем разрешение конкретной роли, если его там еще нет."""
         if permission not in role.permissions:
             role.permissions.append(permission)
 
-    def remove_permission_from_role(self, role: Role, permission: Permission) -> None:
+    async def remove_permission_from_role(
+        self, role: Role, permission: Permission
+    ) -> None:
         """Отзываем разрешение у конкретной роли."""
         if permission in role.permissions:
             role.permissions.remove(permission)
 
     # --- Доступ пользователя ---
 
-    def get_user_permissions(self, user_id: uuid.UUID) -> list[Permission]:
+    async def get_user_permissions(self, user_id: uuid.UUID) -> list[Permission]:
         """Получаем полный список разрешений для конкретного пользователя."""
         raise NotImplementedError
 
-    def has_permission(
+    async def has_permission(
         self, user_id: uuid.UUID, resource_code: str, action_code: str
     ) -> bool:
         """Проверяем, имеет ли пользователь доступ к указанному ресурсу и действию."""

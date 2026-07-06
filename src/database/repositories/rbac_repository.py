@@ -1,7 +1,8 @@
 import uuid
 
-from sqlalchemy import select, exists, and_
-from sqlalchemy.orm import Session as DbSession
+from sqlalchemy import and_, exists, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.database.models import (
     Permission,
@@ -16,10 +17,10 @@ from src.database.models import (
 class SqlAlchemyRbacRepository:
     """Реализация репозитория RBAC с использованием SQLAlchemy ORM."""
 
-    def __init__(self, db: DbSession) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    def get_user_permissions(self, user_id: uuid.UUID) -> list[Permission]:
+    async def get_user_permissions(self, user_id: uuid.UUID) -> list[Permission]:
         """Получаем полный список уникальных разрешений, назначенных пользователю через его роли."""
         stmt = (
             select(Permission)
@@ -27,11 +28,12 @@ class SqlAlchemyRbacRepository:
             .join(Role, Role.id == role_permissions.c.role_id)
             .join(user_roles, user_roles.c.role_id == Role.id)
             .where(user_roles.c.user_id == user_id)
+            .options(selectinload(Permission.resource), selectinload(Permission.action))
             .distinct()
         )
-        return list(self._db.execute(stmt).scalars().all())
+        return list((await self._db.execute(stmt)).scalars().all())
 
-    def has_permission(
+    async def has_permission(
         self, user_id: uuid.UUID, resource_code: str, action_code: str
     ) -> bool:
         """Проверяем наличие у пользователя права на выполнение действия над ресурсом."""
@@ -48,82 +50,102 @@ class SqlAlchemyRbacRepository:
                 )
             )
         )
-        return bool(self._db.execute(stmt).scalar())
+        return bool((await self._db.execute(stmt)).scalar())
 
     # --- Роли ---
 
-    def list_roles(self) -> list[Role]:
+    async def list_roles(self) -> list[Role]:
         """Возвращаем список всех существующих ролей из базы данных."""
-        return list(self._db.execute(select(Role)).scalars().all())
+        result = await self._db.execute(select(Role))
+        return list(result.scalars().all())
 
-    def get_role(self, role_id) -> Role | None:
+    async def get_role(self, role_id) -> Role | None:
         """Находим роль по её идентификатору."""
-        return self._db.get(Role, role_id)
+        return await self._db.get(
+            Role, role_id, options=[selectinload(Role.permissions)]
+        )
 
-    def create_role(self, name: str, description: str | None) -> Role:
+    async def create_role(self, name: str, description: str | None) -> Role:
         """Создаем и сохраняем новую роль в базе данных."""
         role = Role(name=name, description=description)
+        role.permissions = []
         self._db.add(role)
-        self._db.commit()
-        self._db.refresh(role)
+        await self._db.commit()
+        await self._db.refresh(role)
         return role
 
-    def delete_role(self, role: Role) -> None:
+    async def delete_role(self, role: Role) -> None:
         """Удаляем роль из базы данных."""
-        self._db.delete(role)
-        self._db.commit()
+        await self._db.delete(role)
+        await self._db.commit()
 
     # --- Ресурсы и действия ---
 
-    def list_resources(self) -> list[Resource]:
+    async def list_resources(self) -> list[Resource]:
         """Возвращаем список всех зарегистрированных ресурсов."""
-        return list(self._db.execute(select(Resource)).scalars().all())
+        return list((await self._db.execute(select(Resource))).scalars().all())
 
-    def get_resource_by_code(self, code: str) -> Resource | None:
+    async def get_resource_by_code(self, code: str) -> Resource | None:
         """Находим системный ресурс по его строковому коду."""
-        stmt = select(Resource).where(Resource.code == code)
-        return self._db.execute(stmt).scalar_one_or_none()
+        result = await self._db.execute(select(Resource).where(Resource.code == code))
+        return result.scalar_one_or_none()
 
-    def list_actions(self) -> list[Action]:
+    async def list_actions(self) -> list[Action]:
         """Возвращаем список всех зарегистрированных атомарных действий."""
-        return list(self._db.execute(select(Action)).scalars().all())
+        return list((await self._db.execute(select(Action))).scalars().all())
 
-    def get_action_by_code(self, code: str) -> Action | None:
+    async def get_action_by_code(self, code: str) -> Action | None:
         """Находим атомарное действие по его строковому коду."""
-        stmt = select(Action).where(Action.code == code)
-        return self._db.execute(stmt).scalar_one_or_none()
+        result = await self._db.execute(select(Action).where(Action.code == code))
+        return result.scalar_one_or_none()
 
     # --- Доступы ---
 
-    def list_permissions(self) -> list[Permission]:
+    async def list_permissions(self) -> list[Permission]:
         """Возвращаем список всех существующих атомарных разрешений."""
-        return list(self._db.execute(select(Permission)).scalars().all())
+        stmt = select(Permission).options(
+            selectinload(Permission.resource), selectinload(Permission.action)
+        )
+        return list((await self._db.execute(stmt)).scalars().all())
 
-    def get_permission(self, permission_id) -> Permission | None:
+    async def get_permission(self, permission_id) -> Permission | None:
         """Находим атомарное разрешение по его идентификатору."""
-        return self._db.get(Permission, permission_id)
+        return await self._db.get(
+            Permission,
+            permission_id,
+            options=[
+                selectinload(Permission.resource),
+                selectinload(Permission.action),
+            ],
+        )
 
-    def create_permission(self, resource_id, action_id) -> Permission:
+    async def create_permission(self, resource_id, action_id) -> Permission:
         """Создаем и сохраняем новую связь разрешения между ресурсом и действием."""
         permission = Permission(resource_id=resource_id, action_id=action_id)
         self._db.add(permission)
-        self._db.commit()
-        self._db.refresh(permission)
-        return permission
+        await self._db.commit()
+        await self._db.refresh(permission)
+        return await self.get_permission(permission.id)
 
-    def delete_permission(self, permission: Permission) -> None:
+    async def delete_permission(self, permission: Permission) -> None:
         """Удаляем разрешение из базы данных."""
-        self._db.delete(permission)
-        self._db.commit()
+        await self._db.delete(permission)
+        await self._db.commit()
 
-    def assign_permission_to_role(self, role: Role, permission: Permission) -> None:
+    async def assign_permission_to_role(
+        self, role: Role, permission: Permission
+    ) -> None:
         """Привязываем разрешение к роли, если оно еще не было привязано."""
+        await self._db.refresh(role, ["permissions"])
         if permission not in role.permissions:
             role.permissions.append(permission)
-            self._db.commit()
+            await self._db.commit()
 
-    def remove_permission_from_role(self, role: Role, permission: Permission) -> None:
+    async def remove_permission_from_role(
+        self, role: Role, permission: Permission
+    ) -> None:
         """Отзываем разрешение у конкретной роли, если оно было назначено."""
+        await self._db.refresh(role, ["permissions"])
         if permission in role.permissions:
             role.permissions.remove(permission)
-            self._db.commit()
+            await self._db.commit()

@@ -46,7 +46,7 @@ async def list_roles(
     rbac_service: Annotated[RbacService, Depends(get_rbac_service)],
 ) -> list[RoleResponse]:
     """Возвращаем список всех существующих ролей в системе."""
-    return [RoleResponse.model_validate(r) for r in rbac_service.list_roles()]
+    return [RoleResponse.model_validate(r) for r in await rbac_service.list_roles()]
 
 
 @router.post(
@@ -92,7 +92,7 @@ async def list_permissions(
 ) -> list[PermissionResponse]:
     """Возвращаем список всех атомарных разрешений, зарегистрированных в системе."""
     return [
-        PermissionResponse.model_validate(p) for p in rbac_service.list_permissions()
+        PermissionResponse.model_validate(p) for p in await rbac_service.list_permissions()
     ]
 
 

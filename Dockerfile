@@ -6,19 +6,18 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 
-RUN uv pip install --system --no-cache -r pyproject.toml
+RUN uv sync --no-dev --no-install-project
 
 COPY src ./src
-
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY entrypoint.sh ./
 
+RUN chmod +x entrypoint.sh
+
+RUN uv sync --no-dev
+
+ENV PATH="/app/.venv/bin:$PATH"
+
 ENTRYPOINT ["./entrypoint.sh"]
-
-#EXPOSE 8000
-#
-#CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
-#
-
 
